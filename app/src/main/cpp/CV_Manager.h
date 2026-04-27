@@ -1,70 +1,90 @@
-#ifndef ECPROJECT_CV_MANAGER_H
-#define ECPROJECT_CV_MANAGER_H
+// CV_Manager.h
+// Corrections : suppression des 'using namespace' dans le header,
+// ajout mutex pour display_mat, suppression de l'IP hardcodée.
 
-#include <android/native_window.h>
-#include <jni.h>
-#include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>
-#include "Image_Reader.h"
-#include "Native_Camera.h"
-#include "socket_client-h264.h"
-#include "Encoder.h"
+#ifndef EC_PROJET_CV_MANAGER_H
+#define EC_PROJET_CV_MANAGER_H
+
 #include "Util.h"
-#include <cstdlib>
-#include <string>
-#include <vector>
-#include <thread>
-#include <atomic>
+#include "Native_Camera.h"
+#include "Image_Reader.h"
+#include "Encoder.h"
+#include "socket_client-h264.h"
+#include "core/AppConfig.h"
 
-using namespace cv;
-using namespace std;
+#include <opencv2/opencv.hpp>
+#include <android/native_window.h>
+
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <string>
 
 class CV_Manager {
 public:
     CV_Manager();
     ~CV_Manager();
 
-    // Configuration initiale
     void SetNativeWindow(ANativeWindow *native_window);
     void SetUpCamera();
+    void StartCameraLoop();
+    void StopCameraLoop();
+    void TearDownCamera();
+
+    void FlipCamera();
+    void HaltCamera();
+    void RunCV();
+    void ReleaseMats();
+
     void SetUpTCP();
 
-    // Boucles principales
-    void CameraLoop();
-    void NetworkLoop();
-
-    // Actions utilisateur
-    void RunCV();
-    void HaltCamera();
-    void FlipCamera();
+    bool IsInitialized() const;
+    void SetInitialized(bool value);
 
 private:
-    // Utilitaires
-    void ReleaseMats();
-    void BarcodeDetect(Mat &frame);
-    void BGR2YUV_nv12(Mat &src, Mat &dst);
-    void convertYUV_I420toNV12(unsigned char* i420bytes, unsigned char* nv12bytes, int width, int height);
+    void CameraLoop();
 
-    // Camera & Affichage
-    ANativeWindow *m_native_window;
-    Native_Camera *m_native_camera;
-    camera_type m_selected_camera_type = BACK_CAMERA;
-    ImageFormat m_view{0, 0, 0};
-    Image_Reader *m_image_reader;
-    AImage *m_image;
-    volatile bool m_camera_ready;
-    bool m_camera_thread_stopped = false;
+    // Caméra
+    ANativeWindow        *m_native_window  = nullptr;
+    Native_Camera        *m_native_camera  = nullptr;
+    Image_Reader         *m_image_reader   = nullptr;
+    AImage               *m_image          = nullptr;
+    ImageFormat           m_view;
+    camera_type           m_selected_camera_type = BACK_CAMERA;
 
-    // OpenCV
-    std::atomic<bool> scan_mode{false};
-    Mat display_mat, frame_gray, detected_edges;
-    vector<vector<Point>> contours;
-    vector<Vec4i> hierarchy;
+    // Thread
+    std::thread           m_camera_thread;
+    std::atomic<bool>     m_camera_thread_stopped{true};
+    std::atomic<bool>     m_camera_ready{false};
+    std::mutex            m_camera_mutex;
 
-    // Réseau & Encodage (Code du prof)
-    SocketClientH264* m_socket_h264;
-    Encoder* m_encoder;
-    bool m_is_connected = false;
+    // display_mat protégé par m_mat_mutex
+    std::mutex            m_mat_mutex;
+    cv::Mat               display_mat;
+
+    // OpenCV temporaires
+    cv::Mat frame_gray;
+    cv::Mat grad_x, abs_grad_x;
+    cv::Mat grad_y, abs_grad_y;
+    cv::Mat detected_edges;
+    cv::Mat thresh;
+    cv::Mat kernel;
+    cv::Point anchor;
+    cv::Mat cleaned;
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+
+    // CV flags
+    bool scan_mode   = false;
+    double total_t   = 0;
+    clock_t start_t  = 0;
+
+    // Transport
+    Encoder           *m_encoder       = nullptr;
+    SocketClientH264  *m_socket_h264   = nullptr;
+
+    // Misc
+    bool m_initialized = false;
 };
 
-#endif //ECPROJECT_CV_MANAGER_H
+#endif // EC_PROJET_CV_MANAGER_H

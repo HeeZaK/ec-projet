@@ -1,42 +1,89 @@
+// native-lib.cpp
+// JNI Bridge — point d'entrée unique entre Android (Java/Kotlin) et le C++ NDK.
+// Règle : pas de logique métier ici, uniquement dispatch vers les managers.
+
 #include <jni.h>
 #include <string>
-#include <android/asset_manager_jni.h>
-#include <android/native_window_jni.h>
-#include <thread>
 #include "CV_Manager.h"
+#include "core/DeviceRuntime.h"
+#include "telemetry/DeviceState.h"
+#include "webrtc/WebRtcEngine.h"
+#include "security/AuthManager.h"
 
-static CV_Manager app;
+// Instance globale unique — protégée par le mutex de DeviceRuntime
+static CV_Manager    app;
+static WebRtcEngine  webrtc;
 
-extern "C"
+extern "C" {
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
+
 JNIEXPORT void JNICALL
-Java_com_example_ecproject_MainActivity_scan(JNIEnv *env, jobject thiz) {
-    // TODO: implement scan()
-    app.RunCV();
+Java_com_example_ecproject_MainActivity_onStart(JNIEnv *env, jobject /*this*/) {
+    DeviceRuntime::instance().start();
+    AuthManager::instance().init();
+    webrtc.init();
 }
-extern "C"
+
 JNIEXPORT void JNICALL
-Java_com_example_ecproject_MainActivity_flipCamera(JNIEnv *env, jobject thiz) {
-    // TODO: implement flipCamera()
-    // TODO: implement flipCamera()
-    //app.HaltCamera();
+Java_com_example_ecproject_MainActivity_onStop(JNIEnv *env, jobject /*this*/) {
+    app.TearDownCamera();
+    webrtc.destroy();
+    DeviceRuntime::instance().stop();
+}
+
+// ─── Surface ──────────────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_com_example_ecproject_MainActivity_setSurface(
+        JNIEnv *env, jobject /*this*/, jobject surface, jint width, jint height) {
+    ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
+    app.SetNativeWindow(window);
+    app.SetUpCamera();
+    app.SetUpTCP();
+    app.StartCameraLoop();
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_ecproject_MainActivity_releaseSurface(
+        JNIEnv *env, jobject /*this*/) {
+    app.TearDownCamera();
+}
+
+// ─── Caméra ───────────────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_com_example_ecproject_MainActivity_flipCamera(
+        JNIEnv *env, jobject /*this*/) {
     app.FlipCamera();
 }
-extern "C"
+
+// ─── Télémétrie GPS (appelé depuis LocationManager Java) ─────────────────────
+
 JNIEXPORT void JNICALL
-Java_com_example_ecproject_MainActivity_setSurface(JNIEnv *env, jobject thiz, jobject surface) {
-    // TODO: implement setSurface()
-    // Obtention du native window depuis la surface Java
-    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
-    app.SetNativeWindow(window);
-    //app.SetUpTCP();
-    // Configuration de la caméra
-    app.SetUpCamera();
-
-    // Insertion d'un court délai pour s'assurer de la bonne initialisation des ressources
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    // Démarrage de la boucle de capture dans un thread détaché
-    std::thread loopThread(&CV_Manager::CameraLoop, &app);
-    loopThread.detach();
-
+Java_com_example_ecproject_MainActivity_onGpsUpdate(
+        JNIEnv *env, jobject /*this*/,
+        jdouble lat, jdouble lon, jdouble alt,
+        jfloat speed, jfloat bearing, jfloat accuracy,
+        jlong timestampMs) {
+    GpsModel gps;
+    gps.latitude   = lat;
+    gps.longitude  = lon;
+    gps.altitude   = alt;
+    gps.speed      = speed;
+    gps.bearing    = bearing;
+    gps.accuracy   = accuracy;
+    gps.timestamp  = timestampMs;
+    gps.valid      = true;
+    DeviceState::instance().updateGps(gps);
 }
+
+// ─── Infos device ─────────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_com_example_ecproject_MainActivity_onBatteryUpdate(
+        JNIEnv *env, jobject /*this*/, jint level) {
+    DeviceState::instance().setBatteryLevel(level);
+}
+
+} // extern "C"
