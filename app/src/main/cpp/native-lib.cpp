@@ -1,32 +1,48 @@
 // native-lib.cpp
-// JNI Bridge — point d'entrée unique entre Android (Java/Kotlin) et le C++ NDK.
-// Règle : pas de logique métier ici, uniquement dispatch vers les managers.
+// JNI Bridge — point d'entrée unique entre Android (Java) et le C++ NDK.
+// Règle : pas de logique métier ici, uniquement dispatch.
 
 #include <jni.h>
 #include <string>
+
 #include "CV_Manager.h"
 #include "core/DeviceRuntime.h"
 #include "telemetry/DeviceState.h"
+#include "telemetry/GpsModel.h"
 #include "webrtc/WebRtcEngine.h"
 #include "security/AuthManager.h"
 
-// Instance globale unique — protégée par le mutex de DeviceRuntime
-static CV_Manager    app;
-static WebRtcEngine  webrtc;
+// Instances globales — lifecycle géré par onStart/onStop
+static CV_Manager   app;
+static WebRtcEngine webrtc;
+
+// JavaVM globale pour les callbacks JNI asynchrones (ex: AuthManager Keystore)
+static JavaVM *g_jvm = nullptr;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
+    g_jvm = vm;
+    LOGI("[JNI] JNI_OnLoad");
+    return JNI_VERSION_1_6;
+}
 
 extern "C" {
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 JNIEXPORT void JNICALL
-Java_com_example_ecproject_MainActivity_onStart(JNIEnv *env, jobject /*this*/) {
+Java_com_example_ecproject_MainActivity_onStart(
+        JNIEnv *env, jobject /*thiz*/) {
+    LOGI("[JNI] onStart");
     DeviceRuntime::instance().start();
-    AuthManager::instance().init();
+    // Passer l'env pour accéder à Android Keystore
+    AuthManager::instance().init(env);
     webrtc.init();
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_ecproject_MainActivity_onStop(JNIEnv *env, jobject /*this*/) {
+Java_com_example_ecproject_MainActivity_onStop(
+        JNIEnv * /*env*/, jobject /*thiz*/) {
+    LOGI("[JNI] onStop");
     app.TearDownCamera();
     webrtc.destroy();
     DeviceRuntime::instance().stop();
@@ -36,7 +52,9 @@ Java_com_example_ecproject_MainActivity_onStop(JNIEnv *env, jobject /*this*/) {
 
 JNIEXPORT void JNICALL
 Java_com_example_ecproject_MainActivity_setSurface(
-        JNIEnv *env, jobject /*this*/, jobject surface, jint width, jint height) {
+        JNIEnv *env, jobject /*thiz*/,
+        jobject surface, jint width, jint height) {
+    LOGI("[JNI] setSurface %dx%d", width, height);
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
     app.SetNativeWindow(window);
     app.SetUpCamera();
@@ -46,7 +64,8 @@ Java_com_example_ecproject_MainActivity_setSurface(
 
 JNIEXPORT void JNICALL
 Java_com_example_ecproject_MainActivity_releaseSurface(
-        JNIEnv *env, jobject /*this*/) {
+        JNIEnv * /*env*/, jobject /*thiz*/) {
+    LOGI("[JNI] releaseSurface");
     app.TearDownCamera();
 }
 
@@ -54,18 +73,18 @@ Java_com_example_ecproject_MainActivity_releaseSurface(
 
 JNIEXPORT void JNICALL
 Java_com_example_ecproject_MainActivity_flipCamera(
-        JNIEnv *env, jobject /*this*/) {
+        JNIEnv * /*env*/, jobject /*thiz*/) {
     app.FlipCamera();
 }
 
-// ─── Télémétrie GPS (appelé depuis LocationManager Java) ─────────────────────
+// ─── GPS ──────────────────────────────────────────────────────────────────────
 
 JNIEXPORT void JNICALL
 Java_com_example_ecproject_MainActivity_onGpsUpdate(
-        JNIEnv *env, jobject /*this*/,
+        JNIEnv * /*env*/, jobject /*thiz*/,
         jdouble lat, jdouble lon, jdouble alt,
-        jfloat speed, jfloat bearing, jfloat accuracy,
-        jlong timestampMs) {
+        jfloat  speed, jfloat bearing, jfloat accuracy,
+        jlong   timestampMs) {
     GpsModel gps;
     gps.latitude   = lat;
     gps.longitude  = lon;
@@ -78,11 +97,11 @@ Java_com_example_ecproject_MainActivity_onGpsUpdate(
     DeviceState::instance().updateGps(gps);
 }
 
-// ─── Infos device ─────────────────────────────────────────────────────────────
+// ─── Batterie ─────────────────────────────────────────────────────────────────
 
 JNIEXPORT void JNICALL
 Java_com_example_ecproject_MainActivity_onBatteryUpdate(
-        JNIEnv *env, jobject /*this*/, jint level) {
+        JNIEnv * /*env*/, jobject /*thiz*/, jint level) {
     DeviceState::instance().setBatteryLevel(level);
 }
 

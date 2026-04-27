@@ -6,8 +6,25 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- Permissions caméra -->
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Permissions réseau -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <!-- Permissions GPS -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Permissions audio -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Wake lock : maintenir le CPU actif pendant la capture/streaming -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Batterie : lecture de l'état (BATTERY_CHANGED est un broadcast sticky, pas besoin de permission) -->
 
     <application
         android:allowBackup="true"
@@ -21,10 +38,10 @@
         tools:targetApi="31">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:keepScreenOn="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>

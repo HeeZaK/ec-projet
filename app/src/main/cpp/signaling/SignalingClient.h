@@ -1,14 +1,19 @@
 // signaling/SignalingClient.h
-// Client de signaling WebRTC (SDP offer/answer + ICE candidates).
-// Interface prête pour une implémentation WebSocket (IXWebSocket ou libcurl).
-// Pour l'instant : stub compilable avec callbacks à brancher.
+// Client WebSocket de signaling WebRTC.
+// Implémentation avec IXWebSocket (sous-module third_party/IXWebSocket).
+// Protocole JSON : { type, sdp } pour SDP, { type, candidate, sdpMid, sdpMLineIndex } pour ICE.
 
 #pragma once
 
 #include <string>
 #include <functional>
 #include <atomic>
-#include <thread>
+#include <mutex>
+
+#ifdef IXWEBSOCKET_AVAILABLE
+// Désactivé au préprocesseur si IXWebSocket n'est pas encore ajouté en submodule.
+// La compilation reste possible en mode stub.
+#endif
 
 struct SdpMessage {
     std::string type;  // "offer" | "answer"
@@ -32,25 +37,24 @@ public:
     explicit SignalingClient(const std::string &url);
     ~SignalingClient();
 
-    // Connexion au serveur de signaling
     void connect();
     void disconnect();
 
-    // Envoi vers le serveur
     void sendSdp(const SdpMessage &sdp);
     void sendIce(const IceCandidate &candidate);
 
     bool isConnected() const { return m_connected.load(); }
 
 private:
-    void receiveLoop();
     void dispatchMessage(const std::string &json);
+    void send(const std::string &json);
 
-    std::string        m_url;
-    std::atomic<bool>  m_connected{false};
-    std::atomic<bool>  m_running{false};
-    std::thread        m_recv_thread;
+    std::string       m_url;
+    std::atomic<bool> m_connected{false};
+    std::atomic<bool> m_running{false};
+    std::mutex        m_send_mutex;
 
-    // TODO: remplacer par IXWebSocket::WebSocket ou libcurl handle
-    // void *m_ws_handle = nullptr;
+    // Handle IXWebSocket — void* pour compiler sans IXWebSocket headers
+    // Remplacé par ix::WebSocket m_ws quand IXWebSocket est disponible
+    void *m_ws_handle = nullptr;
 };
